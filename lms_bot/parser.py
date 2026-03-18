@@ -22,6 +22,8 @@ def simplify_dom_state(dom: dict[str, Any], visible_text: str) -> dict[str, Any]
     progress = _extract_progress(dom, visible_text)
     completion_detected = _is_completed(visible_text, dom.get("headings", []), progress)
     login_detected = _is_login_state(visible_text, inputs)
+    media = _extract_media(dom)
+    video_gate_detected = _is_video_gate(dom, visible_text, media)
 
     return {
         "url": dom.get("url", ""),
@@ -33,6 +35,8 @@ def simplify_dom_state(dom: dict[str, Any], visible_text: str) -> dict[str, Any]
         "progress": progress,
         "completed": completion_detected,
         "login_detected": login_detected,
+        "media": media,
+        "video_gate_detected": video_gate_detected,
         "headings": dom.get("headings", []),
         "text_excerpt": visible_text[:4000],
     }
@@ -122,6 +126,50 @@ def _is_login_state(visible_text: str, inputs: list[dict[str, str]]) -> bool:
     if any(token in haystack for token in ("login", "log in", "sign in", "password", "stay signed in")):
         return True
     return any(item.get("type") == "password" for item in inputs)
+
+
+def _extract_media(dom: dict[str, Any]) -> dict[str, Any]:
+    media_items = dom.get("media", [])
+    play_hints = dom.get("play_hints", [])
+    if not media_items:
+        return {
+            "present": bool(play_hints),
+            "playing": False,
+            "completed": False,
+            "current_time": 0,
+            "duration": 0,
+            "play_hint_count": len(play_hints),
+        }
+
+    total_duration = max(int(item.get("duration", 0) or 0) for item in media_items)
+    furthest_time = max(int(item.get("current_time", 0) or 0) for item in media_items)
+    playing = any(not item.get("paused", True) and not item.get("ended", False) for item in media_items)
+    completed = all(item.get("ended", False) for item in media_items if item.get("duration", 0))
+
+    return {
+        "present": True,
+        "playing": playing,
+        "completed": completed,
+        "current_time": furthest_time,
+        "duration": total_duration,
+        "play_hint_count": len(play_hints),
+    }
+
+
+def _is_video_gate(dom: dict[str, Any], visible_text: str, media: dict[str, Any]) -> bool:
+    if media.get("present"):
+        return True
+
+    haystack = " ".join(
+        [dom.get("title", ""), visible_text] + list(dom.get("headings", []))
+    ).lower()
+    video_tokens = [
+        "video",
+        "watch",
+        "play",
+        "lesson",
+    ]
+    return any(token in haystack for token in video_tokens)
 
 
 def _looks_like_question(text: str) -> bool:

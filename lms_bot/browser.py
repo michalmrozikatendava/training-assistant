@@ -160,6 +160,45 @@ class BrowserSession:
                         progress = raw ? Number(raw) : null;
                       }
 
+                      const media = Array.from(document.querySelectorAll("video, audio"))
+                        .filter(isVisible)
+                        .map((el) => ({
+                          tag: el.tagName.toLowerCase(),
+                          paused: Boolean(el.paused),
+                          ended: Boolean(el.ended),
+                          muted: Boolean(el.muted),
+                          current_time: Number(el.currentTime || 0),
+                          duration: Number(el.duration || 0)
+                        }));
+
+                      const playHints = Array.from(document.querySelectorAll(
+                        "button, [role='button'], div, span, iframe"
+                      ))
+                        .filter(isVisible)
+                        .map((el) => {
+                          const text = textOf(el);
+                          const aria = (el.getAttribute("aria-label") || "").trim();
+                          const title = (el.getAttribute("title") || "").trim();
+                          const className = typeof el.className === "string" ? el.className : "";
+                          const id = el.id || "";
+                          const src = el.getAttribute("src") || "";
+                          const joined = `${text} ${aria} ${title} ${className} ${id} ${src}`.toLowerCase();
+                          const rect = el.getBoundingClientRect();
+                          return {
+                            text,
+                            aria,
+                            title,
+                            score:
+                              (joined.includes("play") ? 3 : 0) +
+                              (joined.includes("video") ? 2 : 0) +
+                              ((el.tagName || "").toLowerCase() === "iframe" ? 1 : 0),
+                            width: rect.width,
+                            height: rect.height
+                          };
+                        })
+                        .filter((item) => item.score > 0)
+                        .slice(0, 20);
+
                       return {
                         url: window.location.href,
                         title: document.title,
@@ -168,7 +207,9 @@ class BrowserSession:
                         radio_options: radioOptions,
                         headings,
                         text_blocks: textBlocks,
-                        progress
+                        progress,
+                        media,
+                        play_hints: playHints
                       };
                     }
                     """
@@ -298,3 +339,154 @@ class BrowserSession:
             page.wait_for_load_state("networkidle", timeout=3000)
         except TimeoutError:
             pass
+
+    def play_media(self) -> bool:
+        page = self.require_page()
+        played = False
+
+        for frame in page.frames:
+            try:
+                result = frame.evaluate(
+                    """
+                    () => {
+                      const mediaElements = Array.from(document.querySelectorAll("video, audio"));
+                      let started = false;
+                      for (const element of mediaElements) {
+                        try {
+                          element.muted = true;
+                          if (element.playbackRate < 1) {
+                            element.playbackRate = 1;
+                          }
+                          const playResult = element.play();
+                          if (playResult && typeof playResult.catch === "function") {
+                            playResult.catch(() => null);
+                          }
+                          started = true;
+                        } catch (error) {
+                          // Ignore and keep trying fallbacks.
+                        }
+                      }
+                      return started;
+                    }
+                    """
+                )
+                played = played or bool(result)
+            except Exception:
+                continue
+
+        play_selectors = [
+            "button[aria-label*='Play']",
+            "button[title*='Play']",
+            "[role='button'][aria-label*='Play']",
+            "[title*='Play']",
+            ".vjs-big-play-button",
+            ".ytp-large-play-button",
+            ".ytp-cued-thumbnail-overlay-image",
+            ".ytp-cued-thumbnail-overlay",
+            ".plyr__control--overlaid",
+            ".mejs__overlay-button",
+            ".jw-icon-display",
+            ".jw-display-icon-container",
+            "[data-testid*='play']",
+            "button:has-text('Play')",
+            "button:has-text('Resume')",
+            "button:has-text('Watch')",
+        ]
+        for selector in play_selectors:
+            try:
+                locator = page.locator(selector).first
+                if locator.count() > 0:
+                    locator.click()
+                    played = True
+                    break
+            except Exception:
+                continue
+
+        if not played:
+            played = self._click_play_overlay_by_geometry()
+
+        if not played:
+            played = self._click_iframe_center()
+
+        if not played:
+            try:
+                page.keyboard.press("Space")
+                played = True
+            except Exception:
+                pass
+
+        return played
+
+    def _click_play_overlay_by_geometry(self) -> bool:
+        page = self.require_page()
+        try:
+            target = page.evaluate(
+                """
+                () => {
+                  const isVisible = (el) => {
+                    const style = window.getComputedStyle(el);
+                    const rect = el.getBoundingClientRect();
+                    return style.visibility !== "hidden" &&
+                           style.display !== "none" &&
+                           rect.width > 0 &&
+                           rect.height > 0;
+                  };
+
+                  const candidates = Array.from(document.querySelectorAll("button, [role='button'], div, span, video"))
+                    .filter(isVisible)
+                    .map((el) => {
+                      const rect = el.getBoundingClientRect();
+                      const text = `${el.innerText || ""} ${el.getAttribute("aria-label") || ""} ${el.getAttribute("title") || ""} ${el.className || ""}`.toLowerCase();
+                      const score =
+                        (text.includes("play") ? 5 : 0) +
+                        (text.includes("resume") ? 3 : 0) +
+                        ((rect.width > 80 && rect.height > 80) ? 2 : 0);
+                      return {
+                        x: rect.x + rect.width / 2,
+                        y: rect.y + rect.height / 2,
+                        width: rect.width,
+                        height: rect.height,
+                        score
+                      };
+                    })
+                    .filter((item) => item.score > 0)
+                    .sort((a, b) => b.score - a.score || (b.width * b.height) - (a.width * a.height));
+
+                  return candidates[0] || null;
+                }
+                """
+            )
+            if target:
+                page.mouse.move(target["x"], target["y"], steps=random.randint(8, 16))
+                time.sleep(random.uniform(0.1, 0.3))
+                page.mouse.click(target["x"], target["y"])
+                return True
+        except Exception:
+            return False
+        return False
+
+    def _click_iframe_center(self) -> bool:
+        page = self.require_page()
+        iframe_selectors = [
+            "iframe[src*='youtube']",
+            "iframe[src*='vimeo']",
+            "iframe[src*='wistia']",
+            "iframe",
+        ]
+        for selector in iframe_selectors:
+            try:
+                locator = page.locator(selector).first
+                if locator.count() == 0:
+                    continue
+                box = locator.bounding_box()
+                if not box:
+                    continue
+                x = box["x"] + (box["width"] / 2)
+                y = box["y"] + (box["height"] / 2)
+                page.mouse.move(x, y, steps=random.randint(8, 16))
+                time.sleep(random.uniform(0.1, 0.3))
+                page.mouse.click(x, y)
+                return True
+            except Exception:
+                continue
+        return False

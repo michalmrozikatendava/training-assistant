@@ -69,6 +69,21 @@ def run_controller_loop(browser: BrowserSession, llm: Optional[LLMClient]) -> No
         if _try_deterministic_buttons(browser, state):
             continue
 
+        media_state = state.get("media", {})
+        if (media_state.get("present") or state.get("video_gate_detected")) and not media_state.get("completed"):
+            if browser.play_media():
+                print(
+                    "PLAY Media playback started or resumed."
+                    f" ({media_state.get('current_time', 0)}/{media_state.get('duration', 0)}s)"
+                )
+            else:
+                print(
+                    "WAIT Media detected and likely in progress."
+                    f" ({media_state.get('current_time', 0)}/{media_state.get('duration', 0)}s)"
+                )
+            time.sleep(settings.loop_delay_max_seconds)
+            continue
+
         if state["question"] and state["answers"]:
             if llm is None:
                 raise RuntimeError("OPENAI_API_KEY is required to answer quiz questions.")

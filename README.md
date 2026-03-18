@@ -2,7 +2,7 @@
 
 Deterministic-first Python bot for automating LMS trainings with Playwright and OpenAI.
 
-This project opens a training URL, handles common login screens, navigates the course UI, answers quiz questions with OpenAI when needed, and detects completion using explicit signals like completion text or `100%` progress.
+This project opens a training URL, handles common login screens, navigates the course UI, starts lesson media when pages are gated behind video playback, answers quiz questions with OpenAI when needed, and detects completion using explicit signals like completion text or `100%` progress.
 
 ## Goals
 
@@ -44,8 +44,9 @@ Execution priority is:
 
 1. Deterministic buttons like `Next`, `Start`, `Continue`, `Resume`
 2. Login handling for common Microsoft-style sign-in flows
-3. Quiz answering with OpenAI
-4. LLM fallback for unknown states
+3. Media playback for video-gated lessons
+4. Quiz answering with OpenAI
+5. LLM fallback for unknown states
 
 Completion is detected only from strong signals such as explicit completion language or `progress == 100`.
 
@@ -54,6 +55,7 @@ Completion is detected only from strong signals such as explicit completion lang
 - Opens any supplied LMS training URL
 - Saves and reuses Playwright session state in `.playwright-state.json`
 - Detects login pages and can submit credentials from `.env`
+- Detects visible HTML5 media and attempts to start playback automatically
 - Extracts a simplified page state instead of sending raw HTML to the LLM
 - Adds small random delays and light mouse movement before clicks
 - Retries quiz answers if feedback indicates the selected answer was wrong
@@ -170,7 +172,7 @@ The parser reduces page state into a compact structure like:
 - The bot is deterministic-first, but LMS UIs vary a lot
 - Login handling is basic and best-effort, not a full identity-platform integration
 - Quiz answering depends on the OpenAI API and the quality of extracted question/answer text
-- Some trainings may use canvas/video/embedded iframes that need LMS-specific selectors
+- Some trainings may use canvas or deeply embedded iframe players that still need LMS-specific selectors
 - The current implementation is sync Playwright for simplicity, not async
 
 ## Security Notes
