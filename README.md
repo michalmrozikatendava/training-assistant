@@ -56,6 +56,7 @@ Completion is detected only from strong signals such as explicit completion lang
 - Saves and reuses Playwright session state in `.playwright-state.json`
 - Detects login pages and can submit credentials from `.env`
 - Detects visible HTML5 media and attempts to start playback automatically
+- Tries to raise playback speed for detectable media players
 - Extracts a simplified page state instead of sending raw HTML to the LLM
 - Adds small random delays and light mouse movement before clicks
 - Retries quiz answers if feedback indicates the selected answer was wrong
@@ -104,6 +105,7 @@ SCREENSHOT_DIR=artifacts/screenshots
 
 LOOP_DELAY_MIN_SECONDS=1
 LOOP_DELAY_MAX_SECONDS=3
+PREFERRED_PLAYBACK_RATE=2.0
 MAX_STEPS=200
 ```
 

@@ -343,31 +343,32 @@ class BrowserSession:
     def play_media(self) -> bool:
         page = self.require_page()
         played = False
+        target_rate = max(1.0, settings.preferred_playback_rate)
 
         for frame in page.frames:
             try:
                 result = frame.evaluate(
-                    """
-                    () => {
+                    f"""
+                    () => {{
                       const mediaElements = Array.from(document.querySelectorAll("video, audio"));
                       let started = false;
-                      for (const element of mediaElements) {
-                        try {
+                      for (const element of mediaElements) {{
+                        try {{
                           element.muted = true;
-                          if (element.playbackRate < 1) {
-                            element.playbackRate = 1;
-                          }
+                          if (element.playbackRate < {target_rate}) {{
+                            element.playbackRate = {target_rate};
+                          }}
                           const playResult = element.play();
-                          if (playResult && typeof playResult.catch === "function") {
+                          if (playResult && typeof playResult.catch === "function") {{
                             playResult.catch(() => null);
-                          }
+                          }}
                           started = true;
-                        } catch (error) {
+                        }} catch (error) {{
                           // Ignore and keep trying fallbacks.
-                        }
-                      }
+                        }}
+                      }}
                       return started;
-                    }
+                    }}
                     """
                 )
                 played = played or bool(result)
@@ -416,6 +417,61 @@ class BrowserSession:
                 pass
 
         return played
+
+    def get_media_runtime(self) -> dict[str, Any]:
+        page = self.require_page()
+        snapshots: list[dict[str, Any]] = []
+
+        for frame in page.frames:
+            try:
+                snapshot = frame.evaluate(
+                    """
+                    () => {
+                      return Array.from(document.querySelectorAll("video, audio")).map((element) => ({
+                        paused: Boolean(element.paused),
+                        ended: Boolean(element.ended),
+                        current_time: Number(element.currentTime || 0),
+                        duration: Number(element.duration || 0),
+                        playback_rate: Number(element.playbackRate || 1)
+                      }));
+                    }
+                    """
+                )
+                if snapshot:
+                    snapshots.extend(snapshot)
+            except Exception:
+                continue
+
+        if not snapshots:
+            return {
+                "present": False,
+                "playing": False,
+                "completed": False,
+                "current_time": 0,
+                "duration": 0,
+                "playback_rate": 1.0,
+            }
+
+        valid_durations = [item["duration"] for item in snapshots if item.get("duration", 0) > 0]
+        current_time = max(item.get("current_time", 0) for item in snapshots)
+        duration = max(valid_durations) if valid_durations else 0
+        playing = any(not item.get("paused", True) and not item.get("ended", False) for item in snapshots)
+        completed = bool(snapshots) and all(
+            item.get("ended", False) or (
+                item.get("duration", 0) > 0 and item.get("current_time", 0) >= item.get("duration", 0) - 1
+            )
+            for item in snapshots
+        )
+        playback_rate = max(item.get("playback_rate", 1.0) for item in snapshots)
+
+        return {
+            "present": True,
+            "playing": playing,
+            "completed": completed,
+            "current_time": int(current_time),
+            "duration": int(duration),
+            "playback_rate": playback_rate,
+        }
 
     def _click_play_overlay_by_geometry(self) -> bool:
         page = self.require_page()

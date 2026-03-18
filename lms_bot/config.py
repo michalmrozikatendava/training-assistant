@@ -35,6 +35,7 @@ class Settings:
     default_timeout_ms: int = int(os.getenv("DEFAULT_TIMEOUT_MS", "15000"))
     loop_delay_min_seconds: float = float(os.getenv("LOOP_DELAY_MIN_SECONDS", "1"))
     loop_delay_max_seconds: float = float(os.getenv("LOOP_DELAY_MAX_SECONDS", "3"))
+    preferred_playback_rate: float = float(os.getenv("PREFERRED_PLAYBACK_RATE", "2.0"))
     screenshot_dir: Path = Path(os.getenv("SCREENSHOT_DIR", "artifacts/screenshots"))
     max_steps: int = int(os.getenv("MAX_STEPS", "200"))
 

@@ -71,15 +71,28 @@ def run_controller_loop(browser: BrowserSession, llm: Optional[LLMClient]) -> No
 
         media_state = state.get("media", {})
         if (media_state.get("present") or state.get("video_gate_detected")) and not media_state.get("completed"):
+            runtime_media = browser.get_media_runtime()
+            effective_media = runtime_media if runtime_media.get("present") else media_state
+
+            if effective_media.get("completed"):
+                print(
+                    "MEDIA Completed."
+                    f" ({effective_media.get('current_time', 0)}/{effective_media.get('duration', 0)}s)"
+                )
+                time.sleep(settings.loop_delay_min_seconds)
+                continue
+
             if browser.play_media():
                 print(
                     "PLAY Media playback started or resumed."
-                    f" ({media_state.get('current_time', 0)}/{media_state.get('duration', 0)}s)"
+                    f" ({effective_media.get('current_time', 0)}/{effective_media.get('duration', 0)}s"
+                    f" @ {effective_media.get('playback_rate', settings.preferred_playback_rate)}x)"
                 )
             else:
                 print(
                     "WAIT Media detected and likely in progress."
-                    f" ({media_state.get('current_time', 0)}/{media_state.get('duration', 0)}s)"
+                    f" ({effective_media.get('current_time', 0)}/{effective_media.get('duration', 0)}s"
+                    f" @ {effective_media.get('playback_rate', 1.0)}x)"
                 )
             time.sleep(settings.loop_delay_max_seconds)
             continue
